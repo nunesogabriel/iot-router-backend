@@ -1,0 +1,47 @@
+application:
+  name: iot-router-backend  # Nome da aplicação
+
+main:
+  allow-bean-definition-overriding: true  # Permite sobrescrever beans (útil em desenvolvimento)
+
+spring:
+  mvc:
+    servlet:
+      enabled: false  # Desativa o DispatcherServlet padrão do Spring
+
+camel:
+  servlet:
+    mapping:
+      context-path: /* # Captura todas as requisições HTTP para o Camel Servlet
+  springboot:
+    main-run-controller: true  # Garante que o Spring gerencie o Camel corretamente
+
+# Configurações de servidor (porta, etc.)
+server:
+  port: 8080  # Porta onde a aplicação será executada
+  servlet:
+    context-path: /api/v1
+  error:
+    include-message: always  # Inclui a mensagem de erro nos retornos de erro (útil para debug)
+  compression:
+    enabled: true  # Habilita compressão de respostas HTTP para melhorar a performance
+    mime-types: application/json,application/xml,text/html,text/plain  # Tipos de resposta que serão comprimidos
+# Configurações de logging para o ambiente de desenvolvimento
+logging:
+  level:
+    root: INFO
+    org.apache.camel: DEBUG  # Define o log detalhado para o Apache Camel
+    br.com.ufu.iot_router_backend: INFO  # Log detalhado para seu pacote principal
+    org.springframework: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  health:
+    show-details: always
