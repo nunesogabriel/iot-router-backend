@@ -10,6 +10,11 @@ spring:
       enabled: false  # Desativa o DispatcherServlet padrão do Spring
 
 camel:
+  component:
+    paho-mqtt5:
+      broker-url: tcp://localhost:1883
+      client-id: orquestrador-iot
+      topics: iot/metrics/#   # Subscrição para tópicos de métricas dos dispositivos IoT
   servlet:
     mapping:
       context-path: /* # Captura todas as requisições HTTP para o Camel Servlet
@@ -30,7 +35,7 @@ server:
 logging:
   level:
     root: INFO
-    org.apache.camel: DEBUG  # Define o log detalhado para o Apache Camel
+    org.apache.camel: INFO  # Define o log detalhado para o Apache Camel
     br.com.ufu.iot_router_backend: INFO  # Log detalhado para seu pacote principal
     org.springframework: INFO
 
@@ -45,3 +50,18 @@ management:
         enabled: true
   health:
     show-details: always
+
+prometheus:
+    host: "http://prometheus"
+    port: 9090
+    api: "api/v1/query"
+
+ip:
+  url: "http://ip-fetcher:5000/get_ips"
+
+sdn:
+  ryu:
+    api: "http://ryu-controller:8080"
+
+broker:
+  mosquitto: "tcp://10.0.0.5:1883"
