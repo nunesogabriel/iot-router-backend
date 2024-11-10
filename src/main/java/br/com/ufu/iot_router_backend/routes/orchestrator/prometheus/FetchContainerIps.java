@@ -10,7 +10,7 @@
 //    public void configure() throws Exception {
 //        from("timer://fetchContainerIps?period=60000")
 //                .setHeader(Exchange.HTTP_METHOD, constant("GET"))
-//                .to("http://ip-fetcher:5000/get_ips") // URL completa e correta
+//                .to("http://10.0.0.149:5000/get_ips") // URL completa e correta
 //                .process(exchange -> {
 //                    String body = exchange.getIn().getBody(String.class);
 //                    System.out.println("Lista de containers e IPs: " + body);

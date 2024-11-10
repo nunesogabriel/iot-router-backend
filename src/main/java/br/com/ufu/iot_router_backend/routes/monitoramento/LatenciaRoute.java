@@ -12,13 +12,15 @@ public class LatenciaRoute extends RouteBuilder {
     @Autowired
     private IpFetcherConfig ipConfig;
 
+    @Autowired
+    private PingProcessor pingProcessor;
+
     @Override
     public void configure() throws Exception {
         from("direct:analyzeLatency")
                 .to(ipConfig.getUrl())
-                .log("Devices: ${body}")
                 .log("Iniciando ciclo de monitoramento latencia.")
-                .process(new PingProcessor())
+                .process(pingProcessor)
                 .log("Ciclo de monitoramento de latencia finalizado.");
     }
 }

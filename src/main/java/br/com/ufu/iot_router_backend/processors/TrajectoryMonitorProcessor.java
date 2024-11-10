@@ -18,8 +18,6 @@ public class TrajectoryMonitorProcessor implements Processor {
     @Override
     public void process(Exchange exchange) throws Exception {
         String prometheusResponse = exchange.getIn().getBody(String.class);
-//        LOGGER.info(new Gson().toJson(new JSONObject(prometheusResponse)));
-//        printAllKeys(new JSONObject(prometheusResponse), "");
         exchange.getIn().setBody(extractPacketErrors(prometheusResponse));
     }
 

@@ -12,14 +12,16 @@ public class CpuRoute extends RouteBuilder {
     @Autowired
     private IpFetcherConfig ipConfig;
 
+    @Autowired
+    private CpuProcessor processor;
+
     @Override
     public void configure() throws Exception {
         from("direct:analyzeCPU")
                 .routeId("AnalyzeCPU-Route")
                 .to(ipConfig.getUrl())
-                .log("Devices: ${body}")
                 .log("Iniciando ciclo de monitoramento CPU.")
-                .process(new CpuProcessor())
+                .process(processor)
                 .log("Ciclo de monitoramento de CPU finalizado.");
     }
 }

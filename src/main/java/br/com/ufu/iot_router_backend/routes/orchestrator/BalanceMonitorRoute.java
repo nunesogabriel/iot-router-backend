@@ -11,7 +11,7 @@
 //    public void configure() throws Exception {
 //        from("timer://balanceMonitor?fixedRate=true&period=10000")
 //                .routeId("BALANCE_MONITOR")
-//                .to("http://prometheus:9090/api/v1/query?query=rate(container_cpu_usage_seconds_total[1m])")
+//                .to("http://172.20.0.10:9090/api/v1/query?query=rate(container_cpu_usage_seconds_total[1m])")
 //                .process(new BalanceMonitorProcessor())
 //                .choice()
 //                .when(simple("${body} > 0.80"))  // Se o uso de CPU for maior que 80%

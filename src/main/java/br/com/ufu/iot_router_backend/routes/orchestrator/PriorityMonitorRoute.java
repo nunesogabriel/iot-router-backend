@@ -10,7 +10,7 @@
 //    public void configure() throws Exception {
 //        from("timer://priorityMonitor?fixedRate=true&period=10000")
 //                .routeId("PRIORITY_MONITOR")
-//                .to("http://prometheus:9090/api/v1/query?query=rate(node_network_transmit_latency_seconds_total[1m])")
+//                .to("http://172.20.0.10:9090/api/v1/query?query=rate(node_network_transmit_latency_seconds_total[1m])")
 //                .process(new LatencyMonitorProcessor())
 //                .choice()
 //                .when(simple("${body} > 0.08"))  // Se a latência for maior que 80ms

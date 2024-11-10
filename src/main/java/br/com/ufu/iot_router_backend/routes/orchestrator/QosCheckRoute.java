@@ -1,17 +1,12 @@
 package br.com.ufu.iot_router_backend.routes.orchestrator;
 
-import org.apache.camel.builder.RouteBuilder;
-import org.apache.hc.client5.http.classic.methods.HttpGet;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
-import org.springframework.stereotype.Component;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.springframework.stereotype.Component;
 
 @Component
 public class QosCheckRoute extends RouteBuilder {
@@ -22,7 +17,7 @@ public class QosCheckRoute extends RouteBuilder {
                 .process(exchange -> {
                     HttpClient client = HttpClient.newHttpClient();
                     HttpRequest request = HttpRequest.newBuilder()
-                            .uri(new URI("http://ryu-controller:8080/qos/rules/0000000000000001"))
+                            .uri(new URI("http://10.0.0.220:8080/qos/rules/0000000000000001"))
                             .GET()
                             .build();
 
@@ -30,9 +25,6 @@ public class QosCheckRoute extends RouteBuilder {
 
                     int statusCode = response.statusCode();
                     String responseBody = response.body();
-
-                    System.out.println("Status Code: " + statusCode);
-                    System.out.println("Response Body: " + responseBody);
-                }).log("${body}"); // Exibe o resultado da requisição no log
+                }); // Exibe o resultado da requisição no log
     }
 }

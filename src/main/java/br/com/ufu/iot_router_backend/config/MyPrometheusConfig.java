@@ -12,12 +12,12 @@ import org.springframework.context.annotation.Configuration;
 public class MyPrometheusConfig {
 
     private String host;
-    private String port;
+    private int port;
     private String api;
 
     public String createURI() {
         return host +
-                '/' +
+                ':' +
                 port +
                 '/' +
                 api;

@@ -12,7 +12,7 @@
 //        from("timer://latencyMonitor?fixedRate=true&period=10000")  // Consulta a cada 5 segundos
 //                .routeId("LATENCY_MONITOR")
 //                .setHeader(Exchange.HTTP_METHOD, constant("GET"))
-//                .toD("http://prometheus:9090/api/v1/query?query=rate(container_network_transmit_packets_total{interface=\"eth0\"}[1m])")
+//                .toD("http://172.20.0.10:9090/api/v1/query?query=rate(container_network_transmit_packets_total{interface=\"eth0\"}[1m])")
 //                .process(new LatencyMonitorProcessor())
 //                .choice()
 //                    .when(simple("${body} > 0.05"))  // Latência acima de 50ms

@@ -12,7 +12,7 @@
 //    @Override
 //    public void configure() throws Exception {
 //        from("timer://cpuCheck?period=5000")
-//                .to("http://prometheus:9090/api/v1/query?query=rate(container_cpu_usage_seconds_total[1m])")// Executa a cada 1 minuto
+//                .to("http://172.20.0.10:9090/api/v1/query?query=rate(container_cpu_usage_seconds_total[1m])")// Executa a cada 1 minuto
 //                .unmarshal().json(JsonLibrary.Jackson) // Converte a resposta JSON
 //                .process(exchange -> {
 //                    // Obtenha o corpo da resposta

@@ -10,7 +10,11 @@ public class LatencyRoute extends RouteBuilder {
 
     @Override
     public void configure() throws Exception {
-        from("paho:iot/sensor/latency?brokerUrl=tcp://10.0.0.5:1883"
+    	errorHandler(defaultErrorHandler()
+                .maximumRedeliveries(-1) // -1 significa tentativas infinitas
+                .redeliveryDelay(5000)   // atraso de 5 segundos entre as tentativas
+            );
+        from("paho:iot/sensor/latency?brokerUrl=tcp://10.0.0.237:1883"
                 + "&qos=2"                         // Nível de QoS 2 para garantir entrega
                 + "&automaticReconnect=true"      // Habilita reconexão automática
                 + "&keepAliveInterval=60")
@@ -27,7 +31,7 @@ public class LatencyRoute extends RouteBuilder {
                     }
                     exchange.getIn().setBody(response.toString());
 
-                }).to("paho:iot/sensor/response?brokerUrl=tcp://10.0.0.5:1883"
+                }).to("paho:iot/sensor/response?brokerUrl=tcp://10.0.0.237:1883"
                         + "&qos=2"                         // Nível de QoS 2
                         + "&automaticReconnect=true"      // Habilita reconexão automática
                         + "&keepAliveInterval=60");

@@ -43,25 +43,50 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, prometheus
+        include: health, prometheus, metrics  # Adiciona o endpoint 'metrics' explicitamente se for utilizado
+      base-path: /actuator  # Define o caminho base dos endpoints para '/actuator'
   metrics:
     export:
       prometheus:
         enabled: true
   health:
     show-details: always
+  endpoint:
+    health:
+      probes:
+        enabled: true
 
 prometheus:
-    host: "http://prometheus"
+    host: "http://172.20.0.10"
     port: 9090
     api: "api/v1/query"
 
 ip:
-  url: "http://ip-fetcher:5000/get_ips"
+  url: "http://10.0.0.149:5000/get_ips"
 
-sdn:
-  ryu:
-    api: "http://ryu-controller:8080"
+qos:
+  bandwidth:
+    default: 100
+  controller:
+    url: "http://10.0.0.220:8080"
 
 broker:
-  mosquitto: "tcp://10.0.0.5:1883"
+  mosquitto: "tcp://10.0.0.237:1883"
+
+mqtt:
+  broker: "tcp://10.0.0.237:1883"
+  clientId: "orchestratorClient"
+
+monitor:
+    bandwidthLimit: 1000
+    cpuCritialThreshold: 0.25
+    cpuAlertThreshold: 0.15
+    latencyThreshold: 200
+    memoryThresholdCritical: 0.8
+    memoryThresholdAlert: 0.5
+    latencyPing: 10
+
+# Configurações de largura de banda
+bandwidth:
+  limit: 1000  # Limite de largura de banda em Kbps
+  rate_interval: "1m"  # Intervalo de taxa em Prometheus (ex: 1m = 1 minuto)

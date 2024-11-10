@@ -10,7 +10,7 @@
 //    public void configure() throws Exception {
 //        from("timer://trajectoryMonitor?fixedRate=true&period=10000")
 //                .routeId("TRAJECTORY_MONITOR")
-//                .to("http://prometheus:9090/api/v1/query?query=rate(container_network_receive_errors_total[1m])")
+//                .to("http://172.20.0.10:9090/api/v1/query?query=rate(container_network_receive_errors_total[1m])")
 //                .process(new TrajectoryMonitorProcessor())
 //                .choice()
 //                .when(simple("${body} > 10"))  // Se houver mais de 10 erros de pacotes por minuto
