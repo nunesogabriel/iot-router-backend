@@ -2,31 +2,30 @@ package br.com.ufu.iot_router_backend.processors.monitoramento;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
+import org.apache.camel.CamelContext;
 import org.apache.camel.Exchange;
 import org.apache.camel.Processor;
+import org.apache.camel.ProducerTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 
-import br.com.ufu.iot_router_backend.config.BandwidthConfig;
 import br.com.ufu.iot_router_backend.config.MonitorConfig;
-import br.com.ufu.iot_router_backend.config.RyuConfig;
-import br.com.ufu.iot_router_backend.enums.QoSAdjustmentTypeEnum;
+import br.com.ufu.iot_router_backend.enums.QoSDecision;
+import br.com.ufu.iot_router_backend.enums.QoSPriority;
 import br.com.ufu.iot_router_backend.model.Device;
-import br.com.ufu.iot_router_backend.observabilidade.LatencyMetricsService;
+import br.com.ufu.iot_router_backend.model.OutputPrometheus;
+import br.com.ufu.iot_router_backend.observabilidade.MetricsManager;
 import br.com.ufu.iot_router_backend.service.GetIpsService;
-import br.com.ufu.iot_router_backend.service.MqttClientService;
+import br.com.ufu.iot_router_backend.service.PrometheusClient;
 import br.com.ufu.iot_router_backend.service.QoSService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,271 +33,188 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class PingProcessor implements Processor {
 
-    @Autowired
-    private BandwidthConfig bandwidthConfig;
+	@Autowired
+	private GetIpsService getIpsService;
 
-    @Autowired
-    private GetIpsService getIpsService;
+	@Autowired
+	private QoSService qoSService2;
 
-    @Autowired
-    private MonitorConfig monitorConfig;
+	@Autowired
+	private MonitorConfig monitorConfig;
 
-    @Autowired
-    private RyuConfig ryuConfig;
+	@Autowired
+	private MetricsManager managerMetrics;
+	
+	@Autowired
+	private PrometheusClient client;
+	
+	@Autowired
+	private CamelContext context;
 
-    @Autowired
-    private QoSService qosService;
+	@Override
+	public void process(Exchange exchange) throws Exception {
+		log.info("Monitoramento containers Devices Simulados");
+		List<Device> containers = getIpsService.updateDeviceList(exchange.getIn().getBody(String.class));
+		execute(containers, exchange);
+	}
 
-    @Autowired
-    private MqttClientService mqttClient;
+	private void execute(List<Device> containers, Exchange exchange) throws Exception {
+		log.info("execute...");
 
-    @Autowired
-    private LatencyMetricsService latencyMetricsService;
+		Device brokerHost = containers.stream().filter(e -> e.getName().contains("mosq")).findFirst().get();
+		
+//		var latencyBroker = this.getLatency(brokerHost);
+//		managerMetrics.observeLatency(latencyBroker, brokerHost.getName());
+//		
+//		if (latencyBroker > monitorConfig.getLatencyThreshold()) {
+//			this.managerMetrics.incrementBroker(brokerHost.getName());
+//		}
+		
+		List<Device> devices = containers.stream().filter(e -> e.getName().contains("mqtt"))
+				.collect(Collectors.toList());
+		
+        setPriority(devices);
+		
+		ProducerTemplate template = context.createProducerTemplate();
+		double rxBytes = 0;
+		double txBytes = 0;
+		for (Device device : devices) {
+			var ip = device.getIp();
+			
+			var outRxBytes = getRxBytes(template, device);
+			var outTxBytes = getTxBytes(template, device);
+			
+			if (outTxBytes != null && outTxBytes.getData() != null) {
+				if (outTxBytes.getData().getResultMetric() != null && 
+						!outTxBytes.getData().getResultMetric().isEmpty()) {
+					rxBytes = Double.valueOf(outRxBytes.getData().getResultMetric().get(0).getValue()[1]);
+					txBytes = Double.valueOf(outTxBytes.getData().getResultMetric().get(0).getValue()[1]);
+				}				
+			}
+			
+			log.info("Métricas coletadas para {}: RX={} bytes, TX={} bytes", device.getName(), rxBytes, txBytes);
 
-    @Override
-    public void process(Exchange exchange) throws Exception {
-        log.info("Monitoramento containers Devices Simulados");
-        List<Device> containers = getIpsService.updateDeviceList(
-                exchange.getIn().getBody(String.class));
-//        log.info(new Gson().toJson(containers));
-        execute(containers);
-    }
+			double latency = this.getLatency(device);
+			managerMetrics.incrementAvailableDevice(device.getName());
+			managerMetrics.observeLatency(latency, device.getName());
 
-    private void execute(List<Device> containers) throws Exception {
-        log.info("execute...");
-    	for (Device device : containers) {
-    		log.info("Ip {} Name: {}", device.getIp(), device.getName());
-            var deviceIp = device.getIp();
-            double latency = getLatency(deviceIp);
-            System.out.println("Latência do dispositivo " + deviceIp + ": " + latency + " ms");
+			if (latency > monitorConfig.getLatencyThreshold()) {
+				log.info("Latência detectada: {}ms para o container mqtt1 (limite: {})", latency,
+						monitorConfig.getLatencyThreshold());
+				
+				managerMetrics.incrementHighLatencyCount(device.getName());
+				
+				device.setRxBytes(rxBytes);
+				device.setTxBytes(txBytes);
+				
+				var result = qoSService2.analyzeLatencyAndConfigureQueue(device, latency);
 
-            latencyMetricsService.recordLatency(latency, device.getName());
+				if (result.getQosDecision() == QoSDecision.APPLIED) {
+					log.info("A fila foi criada com sucesso.");
+					var host = qoSService2.getSwitchAndPortForDevice(ip);
+					qoSService2.applyQoSRule(device.getPriority(),
+							host.getPort().getDpid(), host.getPort().getPortNo(), ip,
+							brokerHost.getIp(), result.getQueueId());
 
-            if (latency > monitorConfig.getLatencyThreshold()) {
-                log.info("Latência elevada detectada para o dispositivo {} com IP {}.", device.getName(), deviceIp);
+					this.managerMetrics.incrementApplyRule(device.getName());
+					managerMetrics.incrementHighLatencyCount(device.getName());
+					managerMetrics.incrementRedirectEvents(device.getName());
 
-                latencyMetricsService.incrementHighLatencyCount(device.getName());
+					String iotDeviceIp = ip;
+					String brokerIp = brokerHost.getIp();
 
-                reduceDataFrequency(device);
-                qosService.applyQoS(device, QoSAdjustmentTypeEnum.LATENCY);
-                handleNetworkLoad(device, latency);
+					var hostDevice = qoSService2.getSwitchAndPortForDevice(iotDeviceIp);
+					var hostBroker = qoSService2.getSwitchAndPortForDevice(brokerIp);
+					var links = qoSService2.getLinks();
+					String switch2Dpid = hostDevice.getPort().getDpid();
+					String switch1Dpid = hostBroker.getPort().getDpid();
 
-                latency = getLatency(deviceIp);
+					var linkToS1 = links.stream()
+							.filter(link -> link.getSrc().getDpid().equals(switch2Dpid)
+									&& link.getDst().getDpid().equals(switch1Dpid))
+							.findFirst().orElseThrow(() -> new IllegalStateException("Link not found"));
 
-                if (latency > monitorConfig.getLatencyThreshold()) {
-                    prioritizeCriticalTraffic(device);
-                }
+					String s2ToS1Port = linkToS1.getSrc().getPortNo();
+					String s1ToBrokerPort = hostBroker.getPort().getPortNo();
+					this.managerMetrics.incrementRedirectEvents(device.getName());
+					this.managerMetrics.incrementRedirectTraffic(device.getName());	
+					qoSService2.addFlowRule(switch2Dpid, iotDeviceIp, brokerIp, s2ToS1Port);
+					qoSService2.addFlowRule(switch1Dpid, iotDeviceIp, brokerIp, s1ToBrokerPort);
+				}
+			}
+		}
+	}
+
+	private OutputPrometheus getTxBytes(ProducerTemplate template, Device device)
+			throws JsonMappingException, JsonProcessingException {
+		var qtxBytes = String.format("query=rate(container_network_transmit_bytes_total{name=\"%s\"}[1m])",
+				"mn.".concat(device.getName()));
+		
+		var outTxBytes = client.getMetric(qtxBytes, template);
+		return outTxBytes;
+	}
+
+	private OutputPrometheus getRxBytes(ProducerTemplate template, Device device)
+			throws JsonMappingException, JsonProcessingException {
+		var qrxBytes = String.format("query=rate(container_network_receive_bytes_total{name=\"%s\"}[1m])",
+				"mn.".concat(device.getName()));
+		
+		var outRxBytes = client.getMetric(qrxBytes, template);
+		return outRxBytes;
+	}
+
+	private void setPriority(List<Device> devices) {
+		Collections.shuffle(devices);
+       
+        int halfSize = devices.size() / 2;
+       
+        for (int i = 0; i < devices.size(); i++) {
+            if (i < halfSize) {
+                devices.get(i).setPriority(QoSPriority.HIGH);
             } else {
-                revertToPrimaryPathIfNecessary(device);
-                log.info("Latência dentro dos limites aceitáveis.");
+                devices.get(i).setPriority(QoSPriority.LOW);
             }
         }
-    }
+	}
 
-    private void revertToPrimaryPathIfNecessary(Device device) throws Exception {
-        String switchId = getSwitchIdForDevice(device.getIp(), qosService.fetchHostTopology());
-        int primaryPortNo = getPrimaryPortNo(switchId, device.getIp());
+	private double getLatency(Device device) throws Exception {
 
-        if (primaryPortNo != -1) {
-            log.info("Retornando tráfego do dispositivo {} para a rota primária", device.getName());
-            redirectTraffic(device, switchId, primaryPortNo);
-            latencyMetricsService.incrementFailbackEvents(device.getName());
-        }
-    }
+		if (monitorConfig.isTestMode()) {
+			log.info("Mock latency");
+			return 300;
+		}
 
+		String command = "ping -c 10 " + device.getIp();
+		Process process = Runtime.getRuntime().exec(command);
+		BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
 
-    private void handleNetworkLoad(Device device, double latency) throws Exception {
-        String currentSwitchId = getSwitchIdForDevice(device.getIp(), qosService.fetchHostTopology());
-        int alternativePortNo = getAlternativePortNo(currentSwitchId);
+		StringBuilder output = new StringBuilder();
+		String line;
+		while ((line = reader.readLine()) != null) {
+			output.append(line).append("\n");
+		}
+		
+		int exitCode = process.waitFor();
+		
+		if (exitCode != 0) {
+	        log.warn("PING falhou para o dispositivo com IP {}", device.getIp());
+	        device.setAvailable(false);
+	        this.managerMetrics.incrementDownDevice(device.getName());
+	        return -1; // Indica indisponibilidade
+	    }
 
-        if (alternativePortNo != -1) {
-            log.info("Redirecionando tráfego do dispositivo {} para uma rota alternativa", device.getName());
-            redirectTraffic(device, currentSwitchId, alternativePortNo);
-            latencyMetricsService.incrementRedirectEvents(device.getName());
-        } else {
-            log.warn("Nenhuma rota alternativa disponível para o dispositivo {}", device.getName());
-        }
-    }
+		return extractAverageLatency(output.toString());
+	}
 
-    private void redirectTraffic(Device device, String switchId, int alternativePortNo) throws Exception {
-        String targetIp = device.getIp();
-        
-        log.info("Body device: {}", new Gson().toJson(device)); // TODO VALIDAR O QUE ESTÁ CHEGANDO AQUI
+	private double extractAverageLatency(String pingOutput) {
+		Pattern pattern = Pattern
+				.compile("rtt min/avg/max/mdev = (\\d+\\.\\d+)/(\\d+\\.\\d+)/(\\d+\\.\\d+)/(\\d+\\.\\d+)");
+		Matcher matcher = pattern.matcher(pingOutput);
 
-        String jsonBody = String.format(
-                "{\"switch\": \"%s\", \"name\": \"flow-mod\", \"priority\": 10, \"eth_type\": 0x0800, \"ipv4_src\": \"%s\", \"actions\":\"output:%d\"}",
-                switchId, targetIp, alternativePortNo
-        );
+		if (matcher.find()) {
+			return Double.parseDouble(matcher.group(2));
+		}
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ryuConfig.getUrl() + "/stats/flowentry/add"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                .build();
-
-        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() == 200) {
-            log.info("Rota alternativa aplicada com sucesso para o dispositivo {}", device.getName());
-        } else {
-            log.warn("Falha ao aplicar rota alternativa para {}: {}", device.getName(), response.body());
-        }
-    }
-
-    private double getLatency(String deviceIp) throws Exception {
-        String command = "ping -c 10 " + deviceIp;
-        Process process = Runtime.getRuntime().exec(command);
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-
-        StringBuilder output = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            output.append(line).append("\n");
-        }
-        process.waitFor();
-
-        return extractAverageLatency(output.toString());
-    }
-
-    private double extractAverageLatency(String pingOutput) {
-        Pattern pattern = Pattern.compile("rtt min/avg/max/mdev = (\\d+\\.\\d+)/(\\d+\\.\\d+)/(\\d+\\.\\d+)/(\\d+\\.\\d+)");
-        Matcher matcher = pattern.matcher(pingOutput);
-
-        if (matcher.find()) {
-            return Double.parseDouble(matcher.group(2));
-        }
-
-        return 0.0;
-    }
-
-    private void reduceDataFrequency(Device device) {
-        String commandTopic = String.format("iot/sensor/control/%s",
-                device.getIp().replace(".", "_"));
-        String payload = "{\"action\": \"reduce_frequency\", \"interval\": 10}";
-
-        mqttClient.publish(commandTopic, payload);
-        log.info("Reduzindo frequência de envio de dados para o dispositivo {}", device.getName());
-    }
-
-    private void prioritizeCriticalTraffic(Device device) throws Exception {
-        String targetIp = device.getIp();
-        String outputAsResult = qosService.fetchHostTopology();
-
-        String switchId = getSwitchIdForDevice(targetIp, outputAsResult);
-        int portNo = getPortForDevice(targetIp, outputAsResult);
-
-        if (switchId == null || portNo == -1) {
-            log.warn("Dispositivo com IP {} não encontrado na topologia. Prioridade não aplicada.", targetIp);
-            return;
-        }
-
-        String jsonBody = String.format(
-                "{\"port_name\":\"%s-eth%s\", \"type\": \"linux-htb\", \"max-rate\": \"%d\", \"priority\": \"1\"}",
-                switchId, portNo, bandwidthConfig.getBandwidthLimit() * 1000
-        );
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ryuConfig.getUrl() + "/qos/queue/0000000000000001"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                .build();
-
-        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() == 200) {
-            log.info("Prioridade de tráfego aplicada com sucesso para o dispositivo {}", device.getName());
-        } else {
-            log.warn("Falha ao aplicar prioridade de tráfego para {}: {}", device.getName(), response.body());
-        }
-    }
-
-    private int getAlternativePortNo(String switchId) throws Exception {
-        String topologyJson = qosService.fetchHostTopology();
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode root = mapper.readTree(topologyJson);
-
-        for (JsonNode link : root.path("links")) {
-            String srcSwitch = link.path("src").path("dpid").asText();
-            String dstSwitch = link.path("dst").path("dpid").asText();
-
-            if (srcSwitch.equals(switchId)) {
-                int portNo = link.path("src").path("port_no").asInt();
-                log.info("Porta alternativa encontrada para o switch {}: porta {}", switchId, portNo);
-                return portNo;
-            } else if (dstSwitch.equals(switchId)) {
-                int portNo = link.path("dst").path("port_no").asInt();
-                log.info("Porta alternativa encontrada para o switch {}: porta {}", switchId, portNo);
-                return portNo;
-            }
-        }
-
-        log.warn("Nenhuma porta alternativa disponível para o switch {}", switchId);
-        return -1;
-    }
-
-    private String getSwitchIdForDevice(String targetIp, String topologyJson) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode root = mapper.readTree(topologyJson);
-        
-        for (JsonNode host : root) {
-        	for (JsonNode ipNode : host.path("ipv4")) {
-        		if (ipNode.asText().equals(targetIp)) {
-        			return host.path("port").path("dpid").asText();
-        		}
-        	}
-        }
-
-        log.warn("Switch ID não encontrado para o dispositivo com IP {}", targetIp);
-        return null;
-    }
-
-    private int getPortForDevice(String targetIp, String topologyJson) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode root = mapper.readTree(topologyJson);
-
-        for (JsonNode host : root) {
-            if (host.path("ip").toString().contains(targetIp)) {
-                return host.path("port").path("port_no").asInt();
-            }
-        }
-
-        log.warn("Porta não encontrada para o dispositivo com IP {}", targetIp);
-        return -1;
-    }
-
-    private int getPrimaryPortNo(String switchId, String deviceIp) throws Exception {
-        String topologyJson = qosService.fetchHostTopology();
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode root = mapper.readTree(topologyJson);
-
-        int primaryPort = -1;
-        boolean isPrimarySet = false;
-        
-        for (JsonNode host : root) {
-            String dpid = host.path("port").path("dpid").asText();
-            String ip = "";
-            for (JsonNode ipNode : host.path("ipv4")) {
-        		if (ipNode.asText().equals(deviceIp)) {
-        			ip = ipNode.asText();
-        		}
-        	}
-
-            int portNo = host.path("port").path("port_no").asInt();
-
-            if (dpid.equals(switchId) && ip.equals(deviceIp)) {
-                if (!isPrimarySet) {
-                    primaryPort = portNo;
-                    isPrimarySet = true;
-                    log.info("Porta primária para o dispositivo {} encontrada: porta {}", deviceIp, primaryPort);
-                } else {
-                    log.info("Link redundante detectado para o dispositivo {}: porta {}", deviceIp, portNo);
-                }
-            }
-        }
-
-        if (primaryPort == -1) {
-            log.warn("Nenhuma porta primária encontrada para o dispositivo {} no switch {}", deviceIp, switchId);
-        }
-
-        return primaryPort;
-    }
-
+		return 0.0;
+	}
 }
