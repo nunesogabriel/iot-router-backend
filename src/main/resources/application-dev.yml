@@ -10,17 +10,22 @@ spring:
       enabled: false  # Desativa o DispatcherServlet padrão do Spring
 
 camel:
+  component:
+    paho-mqtt5:
+      broker-url: tcp://localhost:1883
+      client-id: orquestrador-iot
+      topics: iot/metrics/#   # Subscrição para tópicos de métricas dos dispositivos IoT
   servlet:
     mapping:
-      context-path: /* # Captura todas as requisições HTTP para o Camel Servlet
+      context-path: /camel/* # Captura todas as requisições HTTP para o Camel Servlet
   springboot:
     main-run-controller: true  # Garante que o Spring gerencie o Camel corretamente
 
 # Configurações de servidor (porta, etc.)
 server:
-  port: 8080  # Porta onde a aplicação será executada
+  port: ${PORT:8080}  # Porta onde a aplicação será executada
   servlet:
-    context-path: /api/v1
+    context-path: /api
   error:
     include-message: always  # Inclui a mensagem de erro nos retornos de erro (útil para debug)
   compression:
@@ -30,7 +35,7 @@ server:
 logging:
   level:
     root: INFO
-    org.apache.camel: DEBUG  # Define o log detalhado para o Apache Camel
+    org.apache.camel: INFO  # Define o log detalhado para o Apache Camel
     br.com.ufu.iot_router_backend: INFO  # Log detalhado para seu pacote principal
     org.springframework: INFO
 
@@ -38,10 +43,48 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, prometheus
-  metrics:
-    export:
-      prometheus:
+        include: '*'
+    base-path: /actuator  # Base dos endpoints do Actuator
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
         enabled: true
-  health:
-    show-details: always
+
+prometheus:
+    host: "http://172.20.0.10"
+    port: 9090
+    api: "api/v1/query"
+
+ip:
+  url: "http://10.0.0.149:5000/get_ips"
+
+qos:
+  bandwidth:
+    default: 100
+  controller:
+    url: "http://10.0.0.220:8080"
+
+broker:
+  mosquitto: "tcp://10.0.0.237:1883"
+
+mqtt:
+  broker: "tcp://10.0.0.237:1883"
+  clientId: "orchestratorClient"
+
+monitor:
+    bandwidthLimit: 1000
+    cpuCritialThreshold: 0.25
+    cpuAlertThreshold: 0.15
+    latencyThreshold: 200
+    memoryThresholdCritical: 0.8
+    memoryThresholdAlert: 0.5
+    latencyPing: 10
+    testMode: ${TEST_MODE:false}
+
+# Configurações de largura de banda
+bandwidth:
+  limit: 1000  # Limite de largura de banda em Kbps
+  rate_interval: "1m"  # Intervalo de taxa em Prometheus (ex: 1m = 1 minuto)
