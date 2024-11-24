@@ -17,15 +17,15 @@ camel:
       topics: iot/metrics/#   # Subscrição para tópicos de métricas dos dispositivos IoT
   servlet:
     mapping:
-      context-path: /* # Captura todas as requisições HTTP para o Camel Servlet
+      context-path: /camel/* # Captura todas as requisições HTTP para o Camel Servlet
   springboot:
     main-run-controller: true  # Garante que o Spring gerencie o Camel corretamente
 
 # Configurações de servidor (porta, etc.)
 server:
-  port: 8080  # Porta onde a aplicação será executada
+  port: ${PORT:8080}  # Porta onde a aplicação será executada
   servlet:
-    context-path: /api/v1
+    context-path: /api
   error:
     include-message: always  # Inclui a mensagem de erro nos retornos de erro (útil para debug)
   compression:
@@ -43,17 +43,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, prometheus, metrics  # Adiciona o endpoint 'metrics' explicitamente se for utilizado
-      base-path: /actuator  # Define o caminho base dos endpoints para '/actuator'
-  metrics:
-    export:
-      prometheus:
-        enabled: true
-  health:
-    show-details: always
+        include: '*'
+    base-path: /actuator  # Base dos endpoints do Actuator
   endpoint:
     health:
-      probes:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
         enabled: true
 
 prometheus:
@@ -85,6 +82,7 @@ monitor:
     memoryThresholdCritical: 0.8
     memoryThresholdAlert: 0.5
     latencyPing: 10
+    testMode: ${TEST_MODE:false}
 
 # Configurações de largura de banda
 bandwidth:
